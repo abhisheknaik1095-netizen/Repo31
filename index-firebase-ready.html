@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sikkim Trip 2026 - Shared Planner</title>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-database.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f3f0; color: #1a1a1a; }
+    .app { max-width: 1200px; margin: 0 auto; padding: 20px; }
+    .header { background: linear-gradient(135deg, #1a73e8 0%, #1e53e5 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+    .header-info h1 { font-size: 24px; margin-bottom: 5px; }
+    .header-info p { opacity: 0.9; font-size: 12px; }
+    .sync-badge { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.2); padding: 10px 16px; border-radius: 20px; font-size: 12px; border: 1px solid rgba(255,255,255,0.3); }
+    .sync-badge.connected::before { content: '🟢'; }
+    .sync-badge.disconnected::before { content: '🔴'; }
+    .tabs { display: flex; gap: 0; margin-bottom: 20px; background: white; border-radius: 8px; overflow-x: auto; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .tab-btn { flex-shrink: 0; padding: 12px 10px; border: none; background: white; color: #666; cursor: pointer; font-weight: 500; border-bottom: 3px solid transparent; transition: all 0.2s; font-size: 12px; }
+    .tab-btn.active { color: #1a73e8; border-bottom-color: #1a73e8; background: #f9f9f9; }
+    .content { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    .stat-card { background: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 10px; border-left: 4px solid #1a73e8; }
+    .stat-label { color: #999; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+    .stat-value { font-size: 24px; font-weight: 600; color: #1a1a1a; margin-top: 5px; }
+    .item { background: #f9f9f9; padding: 15px; border-radius: 6px; margin-bottom: 10px; }
+    .item-title { font-weight: 600; color: #1a1a1a; font-size: 16px; }
+    .item-text { color: #666; font-size: 14px; margin-top: 8px; line-height: 1.5; }
+    .member { display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f9f9f9; border-radius: 6px; margin-bottom: 8px; }
+    .member-name { font-weight: 500; font-size: 14px; }
+    .member-info { font-size: 12px; color: #999; }
+    .positive { color: #388e3c; font-weight: 600; }
+    .negative { color: #d32f2f; font-weight: 600; }
+    input, select { width: 100%; padding: 10px; margin: 5px 0 10px 0; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+    button { background: #1a73e8; color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; margin-top: 10px; }
+    button:active { background: #1557b0; }
+    button.delete { background: #d32f2f; padding: 6px 12px; font-size: 12px; margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 15px; }
+    th { background: #f9f9f9; padding: 10px; text-align: left; font-weight: 600; border-bottom: 1px solid #ddd; }
+    td { padding: 10px; border-bottom: 1px solid #f0f0f0; }
+    .checkbox { margin-top: 10px; }
+    .checkbox input { width: 18px; height: 18px; margin-right: 10px; }
+    .checkbox label { display: flex; align-items: center; cursor: pointer; font-size: 14px; }
+    .info-box { background: #e3f2fd; padding: 12px; border-left: 4px solid #1a73e8; border-radius: 4px; margin-bottom: 15px; font-size: 13px; color: #0d47a1; }
+    h2 { font-size: 16px; margin-top: 20px; margin-bottom: 15px; color: #1a1a1a; }
+    .ready-item { display: flex; justify-content: space-between; padding: 12px; background: #f9f9f9; border-radius: 6px; margin-bottom: 8px; font-size: 13px; }
+    .ready-status { text-align: right; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="header">
+      <div class="header-info">
+        <h1>🏔️ Sikkim Expedition 2026</h1>
+        <p>September 9–13 • 8 travelers • Real-time shared planner</p>
+      </div>
+      <div class="sync-badge disconnected" id="syncBadge">Initializing...</div>
+    </div>
+    <div class="tabs" id="tabButtons"></div>
+    <div class="content">
+      <div id="itinerary" class="tab-pane active"></div>
+      <div id="budget" class="tab-pane"></div>
+      <div id="members" class="tab-pane"></div>
+      <div id="packing" class="tab-pane"></div>
+      <div id="ready" class="tab-pane"></div>
+    </div>
+  </div>
+
+  <script>
+    // Firebase config for travel-e0013 project
+    const firebaseConfig = {
+      apiKey: "AIzaSyC5AKU_n4oZ2mf0vyDu42k5Cea6u0xM73c",
+      authDomain: "travel-e0013.firebaseapp.com",
+      databaseURL: "https://travel-e0013-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "travel-e0013",
+      storageBucket: "travel-e0013.appspot.com",
+      messagingSenderId: "606450695946",
+      appId: "1:606450695946:web:849912f95399d0d1de84f3"
+    };
+
+    let db;
+    let tripRef;
+    let isConnected = false;
+    let useFirebase = false;
+
+    // Initialize Firebase
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.database();
+      useFirebase = true;
+      console.log('✅ Firebase SDK loaded');
+    } catch(e) {
+      console.log('⚠️ Firebase init error:', e);
+      useFirebase = false;
+    }
+
+    const MEMBERS = ['Abhishek', 'Rajat', 'Supraj', 'Hrithik', 'Nithin', 'Ranjith', 'Sharath', 'Pradeep'];
+    const PACKING_ITEMS = ['Rain Jacket', 'Waterproof Shoes', 'Power Bank', 'Chargers', 'ID Proof', 'Medicines', 'Umbrella', 'Cash', 'Sunglasses', 'Warm Layers', 'Trekking Shoes', 'Passport'];
+    
+    const ITINERARY = [
+      { day: 'Wednesday', date: '09-09', destination: 'Gangtok', activities: 'Arrive Bagdogra, drive to Gangtok, MG Marg, dinner & drinks', time: '11:00 - 21:00' },
+      { day: 'Thursday', date: '10-09', destination: 'Gangtok', activities: 'Tsomgo Lake, Baba Mandir, Nathula Pass', time: '07:00 - 18:00' },
+      { day: 'Friday', date: '11-09', destination: 'Gangtok', activities: 'Ropeway, MG Marg Vibes, Casino night', time: '10:00 - 23:00' },
+      { day: 'Saturday', date: '12-09', destination: 'Pelling', activities: 'Drive to Pelling, Skywalk, Pemayangtse Monastery', time: '09:00 - 19:00' },
+      { day: 'Sunday', date: '13-09', destination: 'Bagdogra', activities: 'Drive to airport, return flight to Bangalore', time: '06:00 - 15:00' }
+    ];
+
+    let state = {
+      expenses: [],
+      memberPacking: {}
+    };
+
+    MEMBERS.forEach(m => {
+      state.memberPacking[m] = PACKING_ITEMS.map(item => ({ item, packed: false }));
+    });
+
+    // Load from localStorage
+    function loadLocalData() {
+      const saved = localStorage.getItem('sikkim_trip_data');
+      if (saved) {
+        try {
+          const data = JSON.parse(saved);
+          state.expenses = data.expenses || [];
+          state.memberPacking = data.memberPacking || state.memberPacking;
+          console.log('📦 Loaded from localStorage');
+        } catch(e) {
+          console.log('Error loading local data:', e);
+        }
+      }
+    }
+
+    // Initialize Firebase connection
+    function initializeFirebase() {
+      if (!useFirebase || !db) {
+        console.log('🔴 Firebase not available, using localStorage');
+        loadLocalData();
+        updateConnectionStatus();
+        renderAll();
+        return;
+      }
+
+      // Check connection status
+      db.ref('.info/connected').on('value', (snapshot) => {
+        isConnected = snapshot.val() === true;
+        updateConnectionStatus();
+        console.log('Firebase connection:', isConnected ? 'Connected ✅' : 'Disconnected ❌');
+      });
+
+      // Reference to trip data - using simpler path
+      tripRef = db.ref('sikkim-trip-2026');
+
+      // Listen for updates
+      tripRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          state.expenses = data.expenses || [];
+          state.memberPacking = data.memberPacking || state.memberPacking;
+          console.log('📥 Data received from Firebase');
+        }
+        renderAll();
+      }, (error) => {
+        console.log('Database error:', error);
+        loadLocalData();
+        renderAll();
+      });
+    }
+
+    // Update connection status display
+    function updateConnectionStatus() {
+      const badge = document.getElementById('syncBadge');
+      if (isConnected) {
+        badge.className = 'sync-badge connected';
+        badge.textContent = '🟢 Connected';
+      } else {
+        badge.className = 'sync-badge disconnected';
+        badge.textContent = '🔴 Local Storage Mode';
+      }
+    }
+
+    // Save to database
+    function updateDatabase() {
+      // Always save to localStorage
+      try {
+        localStorage.setItem('sikkim_trip_data', JSON.stringify(state));
+        console.log('💾 Saved to localStorage');
+      } catch(e) {
+        console.log('Error saving to localStorage:', e);
+      }
+
+      // Try to save to Firebase if connected
+      if (isConnected && tripRef) {
+        tripRef.set({
+          expenses: state.expenses,
+          memberPacking: state.memberPacking,
+          lastUpdated: new Date().toISOString()
+        }, (error) => {
+          if (error) {
+            console.log('Firebase save error:', error);
+          } else {
+            console.log('📤 Saved to Firebase');
+          }
+        });
+      }
+    }
+
+    // Render functions
+    function renderAll() {
+      renderTabs();
+      renderItinerary();
+      renderBudget();
+      renderMembers();
+      renderPacking();
+      renderReady();
+    }
+
+    function renderTabs() {
+      const tabs = ['📍 Itinerary', '💰 Budget', '👥 Members', '🎒 Packing', '✅ Ready'];
+      const ids = ['itinerary', 'budget', 'members', 'packing', 'ready'];
+      const html = ids.map((id, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" onclick="switchTab('${id}')">${tabs[i]}</button>`).join('');
+      document.getElementById('tabButtons').innerHTML = html;
+    }
+
+    function switchTab(id) {
+      document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      event.target.classList.add('active');
+    }
+
+    function renderItinerary() {
+      const html = `
+        <div class="stat-card">
+          <div class="stat-label">Duration</div>
+          <div class="stat-value">5 Days</div>
+        </div>
+        ${ITINERARY.map(i => `
+          <div class="item">
+            <div class="item-title">${i.day} - ${i.destination}</div>
+            <div class="item-text">${i.activities}</div>
+            <div class="item-text" style="color: #999; margin-top: 8px;">🕐 ${i.time}</div>
+          </div>
+        `).join('')}
+      `;
+      document.getElementById('itinerary').innerHTML = html;
+    }
+
+    function renderBudget() {
+      const spent = state.expenses.reduce((a, e) => a + e.amount, 0);
+      const html = `
+        <div class="stat-card">
+          <div class="stat-label">Total Spent</div>
+          <div class="stat-value">₹${(spent / 1000).toFixed(0)}k</div>
+        </div>
+        <h2>Add Expense</h2>
+        <input type="text" id="exp-desc" placeholder="Description">
+        <select id="exp-cat">
+          <option>Flights</option>
+          <option>Hotels</option>
+          <option>Transport</option>
+          <option>Food</option>
+          <option>Drinks</option>
+          <option>Casino</option>
+          <option>Shopping</option>
+          <option>Others</option>
+        </select>
+        <input type="number" id="exp-amt" placeholder="Amount" min="0">
+        <select id="exp-who">
+          ${MEMBERS.map(m => `<option>${m}</option>`).join('')}
+        </select>
+        <button onclick="addExpense()">Add Expense</button>
+        <h2>Recent Expenses</h2>
+        <div style="max-height: 400px; overflow-y: auto;">
+          <table>
+            <tr><th>Date</th><th>Description</th><th>Amount</th><th>By</th><th>Action</th></tr>
+            ${state.expenses.length > 0 ? state.expenses.map((e, i) => `
+              <tr>
+                <td>${new Date(e.date).toLocaleDateString()}</td>
+                <td>${e.desc}</td>
+                <td>₹${e.amount}</td>
+                <td>${e.who}</td>
+                <td><button class="delete" onclick="deleteExpense(${i})">Delete</button></td>
+              </tr>
+            `).join('') : '<tr><td colspan="5" style="text-align: center; color: #999;">No expenses</td></tr>'}
+          </table>
+        </div>
+      `;
+      document.getElementById('budget').innerHTML = html;
+    }
+
+    function addExpense() {
+      const desc = document.getElementById('exp-desc').value;
+      const amt = parseFloat(document.getElementById('exp-amt').value);
+      const who = document.getElementById('exp-who').value;
+      
+      if (!desc || !amt || amt <= 0) {
+        alert('Fill all fields correctly');
+        return;
+      }
+      
+      state.expenses.push({ date: new Date().toISOString(), desc, amount: amt, who });
+      updateDatabase();
+      document.getElementById('exp-desc').value = '';
+      document.getElementById('exp-amt').value = '';
+      renderBudget();
+      renderMembers();
+    }
+
+    function deleteExpense(index) {
+      state.expenses.splice(index, 1);
+      updateDatabase();
+      renderBudget();
+      renderMembers();
+    }
+
+    function renderMembers() {
+      const spent = state.expenses.reduce((a, e) => a + e.amount, 0);
+      const perPerson = spent / MEMBERS.length;
+      
+      const html = `
+        <div class="info-box">All expenses split equally among ${MEMBERS.length} members</div>
+        ${MEMBERS.map(m => {
+          const paid = state.expenses.filter(e => e.who === m).reduce((a, e) => a + e.amount, 0);
+          const balance = paid - perPerson;
+          const text = balance > 1 ? `<span class="positive">Gets ₹${Math.round(balance)}</span>` : 
+                       balance < -1 ? `<span class="negative">Owes ₹${Math.round(-balance)}</span>` : 'Settled';
+          return `
+            <div class="member">
+              <div><div class="member-name">${m}</div><div class="member-info">Paid: ₹${Math.round(paid)}</div></div>
+              <div>${text}</div>
+            </div>
+          `;
+        }).join('')}
+      `;
+      document.getElementById('members').innerHTML = html;
+    }
+
+    function renderPacking() {
+      const memberSelect = `
+        <select id="pack-member" onchange="renderPacking()">
+          ${MEMBERS.map(m => `<option>${m}</option>`).join('')}
+        </select>
+      `;
+      const selected = document.getElementById('pack-member')?.value || MEMBERS[0];
+      const packing = state.memberPacking[selected] || [];
+      
+      const html = `
+        <h2>Select Member</h2>
+        ${memberSelect}
+        <h2>Packing List</h2>
+        ${packing.map((item, i) => `
+          <div class="checkbox">
+            <label>
+              <input type="checkbox" ${item.packed ? 'checked' : ''} onchange="togglePack('${selected}', ${i})">
+              <span>${item.item}</span>
+            </label>
+          </div>
+        `).join('')}
+      `;
+      document.getElementById('packing').innerHTML = html;
+    }
+
+    function togglePack(member, i) {
+      if (state.memberPacking[member]) {
+        state.memberPacking[member][i].packed = !state.memberPacking[member][i].packed;
+        updateDatabase();
+      }
+    }
+
+    function renderReady() {
+      const html = `
+        <div class="info-box">Member readiness based on packing</div>
+        ${MEMBERS.map(m => {
+          const items = state.memberPacking[m] || [];
+          const packed = items.filter(i => i.packed).length;
+          const total = items.length;
+          const ready = packed === total && total > 0;
+          const status = ready ? '✅ Ready' : `⚠️ ${total - packed} left`;
+          return `
+            <div class="ready-item">
+              <div><strong>${m}</strong><br><small>${packed}/${total} items</small></div>
+              <div class="ready-status">${status}</div>
+            </div>
+          `;
+        }).join('')}
+      `;
+      document.getElementById('ready').innerHTML = html;
+    }
+
+    // Start the app
+    initializeFirebase();
+  </script>
+</body>
+</html>
